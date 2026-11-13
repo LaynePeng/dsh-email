@@ -6,6 +6,7 @@
  */
 
 import net from 'node:net';
+import tls from 'node:tls';
 
 const MESSAGES = [
   {
@@ -95,14 +96,26 @@ function quoted(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export async function startFakeImap({ authFail = false } = {}) {
+export async function startFakeImap({ authFail = false, starttls = false } = {}) {
   const state = { commands: [], logins: [], authPayloads: [] };
-  const server = net.createServer((socket) => {
+  let secureContext = null;
+  let certDir = null;
+  if (starttls) {
+    const { makeSelfSignedCert } = await import('./fake-smtp.mjs');
+    const cert = makeSelfSignedCert();
+    secureContext = tls.createSecureContext({ key: cert.key, cert: cert.cert });
+    certDir = cert.dir;
+  }
+  const server = net.createServer((rawSocket) => {
+    let socket = rawSocket;
     let buffer = '';
     const waiters = [];
     const attach = () => {
       socket.on('data', onData);
       socket.on('error', () => {});
+    };
+    const detach = () => {
+      socket.removeListener('data', onData);
     };
     const onData = (chunk) => {
       buffer += chunk.toString('utf8');
@@ -129,6 +142,15 @@ export async function startFakeImap({ authFail = false } = {}) {
         const command = (commandRaw || '').toUpperCase();
         const rest = line.slice((tag || '').length + (commandRaw || '').length + 2);
 
+        if (command === 'STARTTLS') {
+          write(`${tag} OK Begin TLS negotiation now\r\n`);
+          detach();
+          socket = new tls.TLSSocket(rawSocket, { isServer: true, secureContext });
+          buffer = '';
+          attach();
+          state.starttlsUsed = true;
+          continue;
+        }
         if (command === 'CAPABILITY') {
           write(`* CAPABILITY IMAP4rev1 AUTH=XOAUTH2\r\n${tag} OK done\r\n`);
           continue;
@@ -220,6 +242,7 @@ export async function startFakeImap({ authFail = false } = {}) {
   return {
     port,
     state,
+    certDir,
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }

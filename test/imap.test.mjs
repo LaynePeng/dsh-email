@@ -119,3 +119,43 @@ test('IMAP：未配置 imapHost 时明确提示（发信不受影响）', async 
   const text = await runList(cfg, tempStore(), {}, {});
   assert.match(text, /未配置 IMAP 服务器/);
 });
+
+test('IMAP：993 不可用时回退 143 + STARTTLS（实测网络会封 993）', async (t) => {
+  const server = await startFakeImap({ starttls: true });
+  t.after(() => server.close());
+  const cfg = baseConfig(server.port);
+  // 主入口指向一个必然失败的端口，备用入口走 143 等价通道
+  cfg.imapPort = 1;
+  cfg.imapTls = 'ssl';
+  cfg.imapFallbacks = [{ port: server.port, tls: 'starttls' }];
+  const opened = await connectImap(cfg, tempStore(), {
+    connect: ({ host, port, secure }) => {
+      // 主入口不通
+      if (port === 1) {
+        const socket = new net.Socket();
+        socket.connecting = true;
+        process.nextTick(() => {
+          socket.destroy();
+          socket.emit('error', Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' }));
+        });
+        return socket;
+      }
+      // 备用入口用明文连，STARTTLS 由客户端升级
+      return net.connect({ host: '127.0.0.1', port });
+    },
+    rejectUnauthorized: false,
+  });
+  assert.equal(opened.ok, true, opened.message);
+  assert.equal(opened.port, server.port);
+  assert.equal(opened.tls, 'starttls');
+  assert.equal(server.state.starttlsUsed, true, '应真的走了 STARTTLS');
+  assert.match(opened.note || '', /改用/);
+  opened.conn.close();
+});
+
+test('IMAP：默认候选里包含 143 备用（outlook 预设）', async () => {
+  const cfg = normalizeConfig({ provider: 'outlook', username: 'me@hotmail.com' });
+  assert.equal(cfg.imapPort, 993);
+  assert.equal(cfg.imapTls, 'ssl');
+  assert.deepEqual(cfg.imapFallbacks, [{ port: 143, tls: 'starttls' }]);
+});
