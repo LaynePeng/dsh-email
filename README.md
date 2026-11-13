@@ -6,7 +6,7 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 - 参考实现：`lite-work-plugins/plugins/email-plugin` 的 OAuth/收发思路 + `dsh-astock` 已在真实邮箱上跑过的 SMTP 状态机与设备码流程。补上了附件、Graph 大附件上传会话、纯文本兜底、发信审计、SMTP 自检与更明确的错误说明。
 - 安全默认：发信前强制 `dry_run` 预览；附件默认只允许工作区；密码不回显；读信工具不会标记已读或删除邮件。
 
-> 版本 0.1.0，未发布到 npm。当前是本地包，用 `link:` 安装最方便。
+> 版本 0.1.0，未发布到 npm。用 `dsh plugin add github:LaynePeng/dsh-email` 安装。
 
 ---
 
@@ -57,7 +57,7 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 
 > **不需要**安装 nodemailer / imapflow 等依赖，也不需要 Python。插件零运行时依赖。
 
-### 方式一：从 GitHub 安装（推荐给普通用户）
+### 安装命令
 
 ```sh
 dsh plugin --profile desktop add github:LaynePeng/dsh-email
@@ -68,25 +68,49 @@ dsh plugin --profile desktop add github:LaynePeng/dsh-email
 **如果终端里没有 `dsh` 命令**（DSH 桌面版默认不写进 PATH），用完整路径：
 
 ```sh
+# macOS
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
   plugin --profile desktop add github:LaynePeng/dsh-email
-```
 
-Windows 桌面版路径类似：
-
-```sh
-"C:\Users\<你的用户名>\AppData\Local\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" ^
+# Windows（PowerShell）
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" `
   plugin --profile desktop add github:LaynePeng/dsh-email
 ```
 
-### 方式二：从本地源码安装（改代码即时生效）
+装完 pnpm 会把仓库克隆到 profile 的 `node_modules` 下（实体目录，不是软链）。
+
+### 升级
 
 ```sh
+dsh plugin --profile desktop add github:LaynePeng/dsh-email
+```
+
+重复执行同一条命令即可拉到最新提交——`add` 对已存在的依赖就是更新。
+然后重启 DSH（或到「设置 → 插件」把「邮件助手」停用再启用）。
+
+> **注意**：`github:` 安装装的是**某个提交的快照**，不会跟着仓库实时变化。
+> 更新了插件代码并推到 GitHub 后，必须再跑一次上面的命令才会生效。
+
+### 卸载
+
+```sh
+dsh plugin --profile desktop remove @laynepeng/dsh-email
+```
+
+卸载只移除插件本身。OAuth 令牌与发信审计留在 `$DSH_HOME/email-data/`，
+要彻底清除需手动删（`oauth.json` 里存着 refresh_token）。
+
+### 只有改插件代码时，才用 link
+
+如果你要修改插件本身，`github:` 每次改完都要重装，很麻烦。这时临时换成软链安装：
+
+```sh
+dsh plugin --profile desktop remove @laynepeng/dsh-email
 dsh plugin --profile desktop add link:/绝对路径/to/dsh-email
 ```
 
-- 用 `link:` 不要用 `file:` —— 前者在 `node_modules` 里是软链，改完源码启用一次插件就生效；后者是复制，改完要重装。
-- Linux / macOS 用正斜杠，Windows 用 `C:/codes/dsh-email` 这种写法。
+- 用 `link:` 不要用 `file:` —— 前者是软链，改完源码在插件页停用/启用一次就生效；后者是复制，改完要重装。
+- 改完、测完，记得换回 `github:` 安装（见上）。
 
 ### 装完确认
 
@@ -310,6 +334,25 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 <a id="develop"></a>
 ## 开发与测试
 
+### 本地开发循环
+
+`github:` 安装装的是提交快照，所以改代码时要临时切到软链模式：
+
+```sh
+# 1) 换成软链安装（只做一次）
+dsh plugin --profile desktop remove @laynepeng/dsh-email
+dsh plugin --profile desktop add link:$(pwd)
+
+# 2) 改代码 → 在「设置 → 插件」把「邮件助手」停用再启用（不用重启 DSH）
+#    boot.js 带版本号+时间戳缓存键，宿主会重新解析整条模块链
+
+# 3) 测完、推上去，换回正常安装
+dsh plugin --profile desktop remove @laynepeng/dsh-email
+dsh plugin --profile desktop add github:LaynePeng/dsh-email
+```
+
+### 跑测试
+
 ```sh
 cd /Users/layne/codes/dsh-email
 
@@ -329,7 +372,7 @@ node scripts/selftest.mjs       # 无需 DSH 宿主的环境自检（打印当�
 
 ```text
 lib/
-  entry.js / boot.js        稳定入口 + 缓存键热重载（改子模块后启停即可）
+  entry.js / boot.js        稳定入口 + 缓存键热重载（link 安装时改子模块后启停即可）
   plugin.js                 注册工具、系统提示、只读状态端点
   client.js                 浏览器半侧：email_send 的邮件预览卡（tool.call.toolview）
   config-schema.js          设置页 schema（volatile 字段 + secret）
