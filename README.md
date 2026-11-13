@@ -20,6 +20,7 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 - [工具与用法](#tools)
 - [安全边界](#security)
 - [故障排查](#troubleshoot)
+- [设计说明：这些决定是怎么来的](#design)
 - [开发与测试](#develop)
 - [已知限制](#limits)
 
@@ -46,35 +47,83 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 <a id="install"></a>
 ## 安装
 
-DSH 桌面版用的是 `desktop` profile，命令行安装：
+### 前置条件
+
+| 项 | 要求 |
+|---|---|
+| DSH | `>= 0.2.0-rc.2`（桌面版 0.2.2 已验证） |
+| Node.js | `>= 22.13.0`（随 DSH 桌面版自带，不用单独装） |
+| 网络 | 能访问 `login.microsoftonline.com`（授权）与 `smtp.office365.com:587` 或 `graph.microsoft.com:443`（发信） |
+
+> **不需要**安装 nodemailer / imapflow 等依赖，也不需要 Python。插件零运行时依赖。
+
+### 方式一：从 GitHub 安装（推荐给普通用户）
 
 ```sh
-# 本地开发（软链，改源码后重启/重新启用插件即生效）
+dsh plugin --profile desktop add github:LaynePeng/dsh-email
+```
+
+仓库地址：https://github.com/LaynePeng/dsh-email
+
+**如果终端里没有 `dsh` 命令**（DSH 桌面版默认不写进 PATH），用完整路径：
+
+```sh
 "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add link:/Users/layne/codes/dsh-email
+  plugin --profile desktop add github:LaynePeng/dsh-email
 ```
 
-如果你已经把 `dsh` 放进 PATH，直接：
+Windows 桌面版路径类似：
 
 ```sh
-dsh plugin --profile desktop add link:/Users/layne/codes/dsh-email
+"C:\Users\<你的用户名>\AppData\Local\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" ^
+  plugin --profile desktop add github:LaynePeng/dsh-email
 ```
 
-安装后重启 DSH（或到「设置 → 插件」里重新启用）。卸载：
+### 方式二：从本地源码安装（改代码即时生效）
+
+```sh
+dsh plugin --profile desktop add link:/绝对路径/to/dsh-email
+```
+
+- 用 `link:` 不要用 `file:` —— 前者在 `node_modules` 里是软链，改完源码启用一次插件就生效；后者是复制，改完要重装。
+- Linux / macOS 用正斜杠，Windows 用 `C:/codes/dsh-email` 这种写法。
+
+### 装完确认
+
+1. **重启 DSH**（或到「设置 → 插件」把「邮件助手」关掉再打开一次）。
+2. 打开 **设置 → 插件**，应该能看到 **邮件助手**，并且有配置表单（服务商/账号/密码等 20 个字段）。
+3. 在任意对话里问 AI「邮件配好了吗」，它应该能调用 `email_account` 并返回一张状态表。
+
+> 如果「设置 → 插件」里**看不到表单**：说明宿主没把 `@deepseek-ai/schemastery` 暴露给插件（它是 peerDependency，由宿主提供）。此时工具仍可用，只是没有图形化配置——可以把配置写进 profile 的 `cordis.patch.yml`（见 [配置](#config) 末尾的等价写法）。
+
+### 升级
+
+```sh
+# GitHub 安装的
+dsh plugin --profile desktop add github:LaynePeng/dsh-email
+
+# link 安装的：拉一下源码，再在插件页停用/启用
+cd /绝对路径/to/dsh-email && git pull
+```
+
+### 卸载
 
 ```sh
 dsh plugin --profile desktop remove @laynepeng/dsh-email
 ```
 
-> 包名是 `@laynepeng/dsh-email`。不要直接手改 profile 的 `cordis.patch.yml`——本包自带的 bundle patch 会在安装时应用，手贴会重复插入。
+卸载只移除插件本身；OAuth 令牌与发信审计留在 `$DSH_HOME/email-data/`，手动删掉才是真正清除（`oauth.json` 里有 refresh_token）。
 
 ### 三分钟跑通
 
 1. 安装并重启 DSH（见上）。
-2. **设置 → 插件 → 邮件助手**：选服务商、填邮箱账号；Hotmail/Outlook 选 `oauth2`，其它邮箱填授权码。
-3. 对 AI 说「授权邮件」→ 按返回的网址和代码在浏览器完成授权（Hotmail/Outlook）。
-4. 对 AI 说：「给 me@example.com 发一封测试邮件，主题『测试』，正文『你好』，先预览」。
-5. 看到草稿没问题，再说「发送」。
+2. **设置 → 插件 → 邮件助手**：
+   - Hotmail/Outlook：服务商选 `outlook`，认证方式 `auto`（走 OAuth2），填邮箱账号。
+   - QQ/163/Gmail 等：服务商选对应项，填邮箱账号 + **授权码**（不是登录密码）。
+   - 保存。
+3. 对 AI 说「**授权邮件**」→ 按返回的网址和 8 位代码在浏览器完成授权（仅 Hotmail/Outlook）。
+4. 对 AI 说：「**给 xxx@example.com 发一封测试邮件，主题『测试』，正文『你好』，先预览**」。
+5. 对话里出现邮件预览卡，确认无误后说「**发送**」。
 
 <a id="config"></a>
 ## 配置
@@ -102,6 +151,27 @@ dsh plugin --profile desktop remove @laynepeng/dsh-email
 | `allowInsecure` | 允许明文 SMTP（仅本机中继/测试） | `false` |
 
 也可以用环境变量兜底（显式配置优先）：`DSH_EMAIL_USERNAME`、`DSH_EMAIL_PASSWORD`、`DSH_EMAIL_OAUTH_TENANT`、`DSH_EMAIL_OAUTH_CLIENT_ID`。
+
+### 没有配置表单时：直接写配置文件
+
+设置页是首选，但宿主没暴露表单时（见 [装完确认](#install)）可以直接改 profile 的配置文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`，追加：
+
+```yaml
+- id: dsh-email
+  name: "@laynepeng/dsh-email"
+  config:
+    provider: outlook
+    auth: auto
+    username: "you@hotmail.com"
+    fromName: "你的名字"
+    # basic（授权码）邮箱才需要：
+    # password: "授权码"
+    # transport: smtp
+    # 其它可选键与上表同名，camelCase
+```
+
+> 改完重启 DSH 生效。**不要把 `oauth.json` 的内容抄进来**——令牌由插件自己管（0600），配置里只放账号。
+
 
 <a id="oauth"></a>
 ## Hotmail / Outlook 授权（OAuth2）
@@ -229,7 +299,9 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 | 授权页报 `AADSTS900023` | 租户里填了邮箱：清空 `oauthTenant`（个人账号）或填租户域名/ID。 |
 | `AADSTS65001` | 用户/管理员未同意：重新授权并在浏览器点同意；组织账号可能需要管理员批准。 |
 | 收件提示 IMAP 登录失败 | 服务商要求授权码；Outlook 需要 OAuth2。先确认网页版已开启 IMAP。 |
-| 收件提示「Graph 通道不含 IMAP 权限」 | 默认 Graph 只用于发信：把 `transport` 改 `smtp` 并重新授权；不改也能正常发信。 |
+| 收件报「993 超时」 | 该网络封了 993。插件会自动回退 143 + STARTTLS，两者都失败说明整条 IMAP 被拦，换网络（如手机热点）即可，发信不受影响。 |
+| 发送时报「主题里不能包含换行符」 | 这是旧版本把 RFC 2047 合法折行误判成注入的 bug（0.1.0 已修）。确认版本是最新的；若仍出现，说明主题原文真的含 CR/LF。 |
+| 收件列表里"最新"却是很久以前的 | 旧版本信任了服务端 SEARCH 顺序（0.1.0 已修，改为按 UID 数值排序）。 |
 | 设置页没有表单 | 确认安装的是 bundle（`dsh.bundle.patch`），并在「设置 → 插件」里找到「邮件助手」；`Config` 依赖宿主提供的 `@deepseek-ai/schemastery`。 |
 | 沙箱里 selftest 报目录不可写 | DSH 文件沙箱只允许工作区；真实应用里 `$DSH_HOME` 可写。 |
 
@@ -242,8 +314,8 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 cd /Users/layne/codes/dsh-email
 
 node --test test/*.test.mjs     # 89 个测试（假 SMTP/OAuth/Graph/IMAP + MIME + 客户端预览卡）
-node scripts/check-tools.mjs    # 工具契约校验
-node scripts/selftest.mjs       # 无需 DSH 宿主的环境自检
+node scripts/check-tools.mjs    # 工具契约校验（3 个工具、参数必带类型）
+node scripts/selftest.mjs       # 无需 DSH 宿主的环境自检（打印当前配置与就绪状态）
 ```
 
 测试不是 mock 到「函数被调用」为止：
@@ -264,19 +336,177 @@ lib/
   tools.json                工具契约（唯一事实源）
   js/
     config.js               配置归一化、预设推导、地址清洗、就绪检查
-    providers.js            服务商预设、scope、租户规范化
-    message.js              MIME 组装、RFC 2047/2231、附件路径守卫
-    smtp.js                 SMTP 状态机（TLS/STARTTLS/XOAUTH2）、自检
-    oauth.js                设备码、令牌续期、错误翻译
-    graph.js                Graph 发信（大附件上传会话）
-    mime.js                 收件解析（multipart/字符集/RFC2047）
-    imap.js                 IMAP 只读（UTF-7、literal、SEARCH/FETCH）
+    providers.js            服务商预设、scope（Graph/SMTP/IMAP）、租户规范化
+    message.js              MIME 组装、RFC 2047/2231、折行安全校验、附件路径守卫
+    smtp.js                 SMTP 状态机（TLS/STARTTLS/XOAUTH2）、重试策略、自检
+    oauth.js                设备码、令牌续期、scope 子集判断、错误翻译
+    graph.js                Graph 发信（大附件上传会话）+ 只读探针
+    mime.js                 收件解析（multipart/字符集/RFC2047/2231）
+    imap.js                 IMAP 只读（UTF-7、literal 检索、993/143 回退）
     store.js                oauth.json / sends.jsonl（0600）
-    send.js                 发信编排 + dry_run 预览 + 审计
+    send.js                 发信编排 + Graph→SMTP 回落 + 熔断 + dry_run 预览 + 审计
     status.js               状态与联网自检
 ```
 
 修完子模块后，在「设置 → 插件」里把邮件助手关掉再打开即可重新加载；`boot.js` 用版本号+时间戳做缓存键，Node 不会继续跑旧模块。
+
+<a id="design"></a>
+## 设计说明：这些决定是怎么来的
+
+这一节记录**每一条看起来"多余"的代码背后踩过的坑**。都是在本机真实邮箱上撞出来的，
+不是推演出来的。留着是为了以后改这块代码的人（包括我自己）别再撞一遍。
+
+### 总览
+
+| # | 现象 | 根因 | 现在的做法 |
+|---|---|---|---|
+| 1 | 长中文主题报「Subject 含换行符」 | RFC 2047 长主题会折成多段编码词，折行被头部注入检查误判 | 区分「原始输入」与「已编码值」两套校验 |
+| 2 | 回落失败时只看到 Graph 的错 | SMTP 的真实原因被吞 | 两条通道都失败时同时报两边 |
+| 3 | 回落只试一次就放弃 | 网络会间歇重置，实测第 3 次才成功 | 网络类失败重试 3 次，认证类不重试 |
+| 4 | `smtp-mail.outlook.com` 一直连不上 | STARTTLS 阶段被网络重置（4/4） | 主用 `smtp.office365.com`，失败换入口 |
+| 5 | 每封都等 Graph 超时一分钟 | 无状态，每次都想先试 Graph | 失败后熔断 10 分钟 |
+| 6 | 刚授权成功却报「权限不足」 | 用集合相等比较 scope，且把 `offline_access` 当必需项 | 子集判断 + 忽略 `offline_access` |
+| 7 | 邮件列表里"最新"是两周前 | 信任了服务端 `UID SEARCH` 的返回顺序 | 自己按 UID 数值排序 |
+| 8 | STARTTLS 之后卡 20 秒超时 | 按"会再发一次问候语"去读（RFC 3501 不会） | 改用 CAPABILITY 往返同步 |
+| 9 | 993 被封就完全读不了信 | 只支持 993 隐式 TLS | 加 143 + STARTTLS 备用通路 |
+| 10 | 走 Graph 发信就读不了信 | 误以为两个资源的令牌不能共存 | 读信自己换 `outlook.office` 令牌 |
+| 11 | 工具太多，schema 每轮都塞给模型 | 7 个工具参数高度重复 | 合并成 3 个，`action` 分派 |
+
+### 1. 头部注入检查不能用在已编码的值上
+
+`encodeHeaderValue()` 对超过 45 字节的中文主题会折成多段：
+
+```
+Subject: =?UTF-8?B?RFNIIOmCruS7tuWKqeaJi+Wunua1iw==?=
+ =?UTF-8?B?77yI6Ieq5Yqo5Zue6JC96ZO+6Lev77yJ?=
+```
+
+段间是 `CRLF + 空格`，这是 **RFC 5322 合法折行**。原来 `headerBlock()` 对所有头部值
+统一调用 `assertNoHeaderInjection()`，结果把合法折行当成注入，用户看到的就是
+「主题里不能包含换行符」——而主题里根本没有换行。
+
+现在的分工：
+
+- `assertNoHeaderInjection()` —— 只校验**用户原始输入**（主题、显示名、地址），
+  出现 CR/LF 立刻拒绝，这是真注入；
+- `assertSafeFoldedHeader()` —— 校验**已编码/已折行**的值，先把合法的
+  `CRLF + 空白` 折行去掉，剩下的 CR/LF 才拒绝。
+
+长收件人列表（`formatMailboxList()` 按逗号折行）走同一条路径。
+
+### 2. 失败原因必须成对出现
+
+回落逻辑最初写成了「Graph 失败 → 试 SMTP → 不行就保留 Graph 的错误」。结果用户
+看到的是「Graph 502」，而真正让它发不出去的是 SMTP 那边的 `ECONNRESET`。
+两条通道都失败时现在这样报：
+
+```
+Graph 与 SMTP 两条通道都失败：
+· Graph：连接 Microsoft Graph 失败：The operation was aborted due to timeout
+· SMTP：发信失败：read ECONNRESET（smtp.office365.com）（尝试 3 次均失败）
+```
+
+### 3. 重试只对网络层有意义
+
+`isRetryableSmtpFailure()` 分两类：
+
+- **重试**：`ECONNRESET` / `ETIMEDOUT` / `EPIPE` / 超时 / 连接被关闭，以及落在
+  `greeting`/`ehlo`/`starttls` 阶段的失败——这些是线路抖动；
+- **不重试**：535 认证失败、534 需要应用专用密码、501 地址非法、550/553 拒收、
+  554 判垃圾——换多少次结果都一样，重试只是让用户多等。
+
+实测依据：本机网络对带 OAuth 凭证的 TLS 连接会间歇重置，同一令牌连 3 次
+（前两次 reset、第三次成功）才发出去。所以默认 3 次、间隔 1.2 秒。
+
+### 4. 同一套后端有多个入口，某个入口被拦就换
+
+微软的 SMTP 有 `smtp.office365.com` 和 `smtp-mail.outlook.com` 两个域名入口，
+后端是同一套。实测：
+
+```
+smtp-mail.outlook.com:587 (starttls) → ECONNRESET | 220 OK | 220 OK | 220 OK
+smtp.office365.com:587  (starttls) → 220 OK | 220 OK | 220 OK | 220 OK
+```
+
+所以预设改成主用 `office365`，`smtp-mail` 降为备用入口；`sendViaSmtpChannel()`
+按候选列表尝试，**只在握手阶段失败时换入口**（认证失败换域名没意义）。
+用户手填了 `smtpHost` 就不启用备用列表——那代表他明确要用哪个。
+
+### 5. 不要每封都为「可能失败」付超时
+
+Graph 被拦时每次要等 30–60 秒超时。`sendEmail()` 里加了一个进程内熔断：
+网关/网络类失败后记 10 分钟，期间直接走 SMTP，并在回执里写明
+「约 N 分钟后会再试 Graph」。成功一次就清空熔断，网络恢复能自动回到主通道。
+
+> 熔断是**进程内**状态，重启 DSH 会清空——这是有意的：重启往往意味着网络环境
+> 变了，应该重新试一次主通道。
+
+### 6. scope 是"包含"不是"相等"
+
+微软返回的 `scope` 常常比你要的多（应用在 Azure 里已获同意的其它权限）。
+早期实现用集合相等比较，导致刚授权成功就报「权限与通道不一致」，用户被迫
+反复授权。现在的 `scopeSatisfies()`：
+
+- 只要求**必需项是已授权项的子集**，多出来的权限不影响；
+- `offline_access` 只用于申请 refresh_token，**不会出现在 access_token 的 scope 里**，
+  所以不能当必需项——这条是踩出来的，修之前每次授权完都会被判缺权限。
+
+### 7. 服务端的 SEARCH 顺序不可信
+
+`UID SEARCH` 的返回顺序协议没保证。原来写 `uids.slice(-N).reverse()` 取"最新 N 封"，
+在返回**降序**的服务器上就变成了取最老的那批——用户看到的第一封是两周前的邮件，
+而列表本身"看起来完全正常"，这种错最难发现。
+
+现在先 `map(Number)` 去重排序，再取尾部；`FETCH` 结果也统一按 UID 降序整理。
+回归用例 `reverseSearch` 专门模拟降序服务器。
+
+### 8. STARTTLS 之后没有第二次问候语
+
+RFC 3501：`STARTTLS` 成功后服务器**不会**重发 `* OK` 问候语。第一版按"等服务端
+再发一次 banner"写，遇到合规服务器就一直等到 20 秒超时。现在升级后直接发
+`CAPABILITY` 往返一次确认加密通道可用——顺便清掉对端可能插入的数据。
+
+### 9. 993 被封时 143 + STARTTLS 是等价通路
+
+部分网络封 IMAP 的 993 但放行 143。两者升级完成后是同样的加密通道。所以
+`connectImap()` 改成按候选列表尝试：
+
+- 主：`imapPort`（默认 993，`ssl`）
+- 备：`imapFallbacks`（outlook 预设自带 `143/starttls`）
+
+同样只在网络类失败时换入口。用户手填 `imapHost` 时不启用备用（避免把自建服务器
+的流量导向意料之外的端口）。
+
+### 10. 读信的令牌和发信的令牌是两回事
+
+Graph 与 `outlook.office.com` 是**两个资源**，Graph 令牌不能拿去 `AUTHENTICATE XOAUTH2`。
+早期实现据此直接拒绝"走 Graph 时读信"，让用户切通道并重新授权——这是过度限制：
+**同一个 refresh_token 可以向 outlook.office 换一份读信令牌**，不需要重新授权。
+
+现在读信走 `getImapToken()`（`IMAP_SCOPE`），与发信通道完全解耦。
+
+### 11. 工具要给模型"少而准"的接口
+
+7 个工具里，`folder`/`since`/`until`/`unread`/`max` 这些参数重复出现在 4 个只读工具上。
+合并成 `email_mailbox(action)` 后，schema 从 8490 bytes 降到 5841 bytes（-31%）。
+
+不是单纯为了省 token：**拆开会让模型在"该用 list 还是 search"上犹豫**，而这两件事
+本来就是同一条命令的不同参数组合。合并后用 `action` 明确表态，参数只有一份。
+
+保留的约束：未知 `action` 明确报错并列出可用值（不静默落到默认动作，否则模型传错
+了也发现不了）；不传 `action` 时给合理默认（`mailbox` → `list`，`account` → `status`）。
+
+### 一些刻意保守的选择
+
+| 决定 | 理由 |
+|---|---|
+| 发信前强制 `dry_run` 预览 | 邮件发出去无法撤回；预览让用户在**发送前**看到收件人和正文，比事后道歉便宜 |
+| 附件默认只能读工作区 | 模型不该能把 `~/.ssh/id_rsa` 当附件发出去；需要额外目录得用户显式配置 |
+| 成功只说「服务器已接收」 | 服务器接收 ≠ 对方看到。说"已送达"是编造事实 |
+| 读信工具没有删除/移动/标记 | 误删一封的代价远大于少一个功能 |
+| 明文 SMTP 默认拒绝 | 除非本机中继，否则账号密码在明文连接里裸奔 |
+| 令牌单独存 `oauth.json`（0600） | 配置会被顺手截图/提交；令牌不该混在里面 |
+| 审计只记头部不记正文 | 排查"发没发出去"不需要正文内容 |
 
 <a id="limits"></a>
 ## 已知限制
