@@ -31,7 +31,9 @@
         },
         "attachments": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "附件文件路径列表（相对当前工作区或绝对路径；必须在工作区内）。单个文件与总大小受配置限制（默认 20MB）"
         },
         "reply_to": {
@@ -51,7 +53,11 @@
           "description": "true＝只组装并返回草稿预览，不发送（推荐；确认后再去 dry_run 正式发送）"
         }
       },
-      "required": ["to", "subject", "body"]
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ]
     }
   },
   {
@@ -69,19 +75,131 @@
   },
   {
     "name": "email_list",
-    "description": "列出某个 IMAP 文件夹里的邮件（默认收件箱 INBOX，最新在前）。可按发件人、主题关键词、全文关键词、未读、日期范围过滤。返回每封的 UID、时间、发件人、主题（🔵=未读，📎=有附件），UID 可直接交给 email_read。只读，不会标记已读、不会删除。读信需要配置 IMAP 服务器（发信不受影响）。",
+    "description": "列出某个 IMAP 文件夹里的邮件（默认收件箱 INBOX）。可按时间（since/until/days，含本地复核，避免服务器忽略日期条件）、发件人、主题、关键词、未读过滤，并选择新旧排序。返回每封的 UID/时间/发件人/主题（🔵=未读，📎=有附件），UID 可直接交给 email_read。只读，不会标记已读、不会删除。",
     "parameters": {
       "type": "object",
       "properties": {
-        "folder": { "type": "string", "description": "IMAP 文件夹（默认 INBOX；中文名会自动转 UTF-7）" },
-        "from": { "type": "string", "description": "按发件人过滤（子串匹配）" },
-        "subject": { "type": "string", "description": "按主题关键词过滤" },
-        "keyword": { "type": "string", "description": "全文关键词，多个用逗号分隔（须同时命中；含中文时在本地匹配最近 40 封）" },
-        "unread": { "type": "boolean", "description": "只看未读" },
-        "since": { "type": "string", "description": "起始日期 YYYY-MM-DD（含当天）" },
-        "until": { "type": "string", "description": "截止日期 YYYY-MM-DD（不含当天）" },
-        "max": { "type": "integer", "description": "最多返回几封（默认 20，上限 50）" }
+        "folder": {
+          "type": "string",
+          "description": "IMAP 文件夹（默认 INBOX；中文名会自动转 UTF-7）"
+        },
+        "from": {
+          "type": "string",
+          "description": "按发件人过滤（子串匹配）"
+        },
+        "subject": {
+          "type": "string",
+          "description": "按主题关键词过滤"
+        },
+        "keyword": {
+          "type": "string",
+          "description": "全文关键词，多个用逗号分隔（须同时命中；含中文时在本地匹配最近 40 封）"
+        },
+        "unread": {
+          "type": "boolean",
+          "description": "只看未读"
+        },
+        "since": {
+          "type": "string",
+          "description": "起始日期 YYYY-MM-DD（含当天）。也可用 after 别名"
+        },
+        "until": {
+          "type": "string",
+          "description": "截止日期 YYYY-MM-DD（含当天）。也可用 before 别名"
+        },
+        "max": {
+          "type": "integer",
+          "description": "最多返回几封（默认 20，上限 50）"
+        },
+        "days": {
+          "type": "number",
+          "description": "最近 N 天（含今天），滚动窗口。与 since 取更严格者"
+        },
+        "sort": {
+          "type": "string",
+          "description": "排序：newest=最新在前（默认）/ oldest=最旧在前"
+        },
+        "after": {
+          "type": "string",
+          "description": "since 的别名（YYYY-MM-DD）"
+        },
+        "before": {
+          "type": "string",
+          "description": "until 的别名（YYYY-MM-DD）"
+        }
       }
+    }
+  },
+  {
+    "name": "email_search",
+    "description": "在邮箱里搜索邮件（比 email_list 更强）。支持：关键词（中文/英文）、限定搜索范围（subject/from/to/body/all）、时间范围（since/until/days，服务端筛选 + 本地复核）、未读、发件人/收件人、跨文件夹（all_folders=true）、新旧排序。返回命中表格（时间/发件人/主题/命中字段/UID）与命中片段，可用 email_read 读全文。只读，不改任何状态。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "搜索关键词（中文走 UTF-8 literal 由服务端检索，不支持时自动本地兜底）"
+        },
+        "in": {
+          "type": "string",
+          "description": "搜索范围：auto=全字段（默认）/ subject / from / to / body / all"
+        },
+        "from": {
+          "type": "string",
+          "description": "按发件人过滤（与 query 同时生效）"
+        },
+        "to": {
+          "type": "string",
+          "description": "按收件人过滤"
+        },
+        "since": {
+          "type": "string",
+          "description": "起始日期 YYYY-MM-DD（含当天）"
+        },
+        "until": {
+          "type": "string",
+          "description": "截止日期 YYYY-MM-DD（含当天）"
+        },
+        "days": {
+          "type": "number",
+          "description": "最近 N 天（含今天）"
+        },
+        "after": {
+          "type": "string",
+          "description": "since 的别名"
+        },
+        "before": {
+          "type": "string",
+          "description": "until 的别名"
+        },
+        "unread": {
+          "type": "boolean",
+          "description": "只搜未读"
+        },
+        "folder": {
+          "type": "string",
+          "description": "限定文件夹（默认 INBOX）；中文名会自动转 UTF-7"
+        },
+        "all_folders": {
+          "type": "boolean",
+          "description": "搜索全部文件夹（跳过不可选文件夹，最多 25 个）"
+        },
+        "scan": {
+          "type": "number",
+          "description": "本地兜底时每个文件夹最多回溯多少封（默认 200，上限 500）"
+        },
+        "sort": {
+          "type": "string",
+          "description": "newest=最新在前（默认）/ oldest=最旧在前"
+        },
+        "max": {
+          "type": "integer",
+          "description": "最多返回几条（默认 20，上限 50）"
+        }
+      },
+      "required": [
+        "query"
+      ]
     }
   },
   {
@@ -90,11 +208,22 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "folder": { "type": "string", "description": "邮件所在文件夹（默认 INBOX）" },
-        "uid": { "type": "string", "description": "邮件 UID（email_list 返回的 UID 列）" },
-        "max_chars": { "type": "integer", "description": "正文最多显示多少字符（默认 8000，上限 30000）" }
+        "folder": {
+          "type": "string",
+          "description": "邮件所在文件夹（默认 INBOX）"
+        },
+        "uid": {
+          "type": "string",
+          "description": "邮件 UID（email_list 返回的 UID 列）"
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "正文最多显示多少字符（默认 8000，上限 30000）"
+        }
       },
-      "required": ["uid"]
+      "required": [
+        "uid"
+      ]
     }
   },
   {
@@ -103,7 +232,10 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "counts": { "type": "boolean", "description": "是否统计每个文件夹的邮件数/未读数（默认 true；文件夹多时较慢可设 false）" }
+        "counts": {
+          "type": "boolean",
+          "description": "是否统计每个文件夹的邮件数/未读数（默认 true；文件夹多时较慢可设 false）"
+        }
       }
     }
   },
@@ -115,7 +247,13 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["status", "start", "poll", "cancel", "logout"],
+          "enum": [
+            "status",
+            "start",
+            "poll",
+            "cancel",
+            "logout"
+          ],
           "description": "status 查看 / start 发起授权（返回代码与网址）/ poll 轮询结果 / cancel 取消进行中的授权 / logout 清除令牌"
         },
         "wait_seconds": {
@@ -127,7 +265,9 @@
           "description": "一般不用填：默认使用本机保存的进行中设备码"
         }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     }
   }
 ]

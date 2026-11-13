@@ -34,7 +34,8 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 | 普通密码 | QQ / 163 / 126 / 新浪 / 阿里云 / iCloud / Zoho / Fastmail / 自定义 SMTP，用授权码或应用专用密码 |
 | 正文 | 纯文本 + HTML；只给 HTML 时自动生成纯文本兜底 |
 | 附件 | 单封总大小默认 20MB；Graph 超过 3MB 自动走上传会话分片 |
-| 收件（只读） | 列文件夹、列邮件、读单封；支持中文关键词（本地匹配最近 40 封） |
+| 收件（只读） | 列文件夹、列邮件、读单封 |
+| 搜索 | `email_search`：关键词（中文走 UTF-8 literal 由服务端检索，失败自动本地兜底）+ 范围限定（主题/发件人/收件人/正文）+ 时间窗口（since/until/days，服务端筛完再本地复核）+ 跨文件夹 + 新旧排序，返回命中表格与**命中片段** |
 | 审计 | `sends.jsonl` 记录发件时间/收件人/主题/通道/结果，不含正文 |
 | 预览 | `dry_run=true` 不联网、不读令牌，只返回草稿 |
 | 对话内预览卡 | 浏览器半侧把 `email_send` 调用渲染成邮件卡：收件人/抄送/密送、主题、正文、附件、HTML 预览（sandbox iframe），并区分草稿/发送中/已发送/失败 |
@@ -184,11 +185,17 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 
 `action=status | start | poll | cancel | logout`，`wait_seconds` 用于 poll 等待（上限 120 秒）。适合「授权邮件」「重新授权」「退出登录」这类对话。
 
-### `email_list` / `email_read` / `email_folders`
+### `email_search` / `email_list` / `email_read` / `email_folders`
 
 只读收件箱：
 
-- `email_list`：`folder`、`from`、`subject`、`keyword`、`unread`、`since`、`until`、`max`（≤50）。返回 UID/时间/发件人/主题，🔵 未读、📎 有附件。
+- `email_search`：**找邮件用这个**。
+  - `query` 关键词；`in` 限定范围（`auto`/`subject`/`from`/`to`/`body`）
+  - 时间：`since` / `until`（`YYYY-MM-DD`，含当天）、`days=N`（最近 N 天）、`after`/`before` 别名
+  - `from`/`to` 结构化过滤、`unread`、`all_folders=true` 跨文件夹（≤25 个）、`scan` 本地兜底回溯量（默认 200，≤500）、`sort`（`newest`/`oldest`）、`max`（≤50）
+  - 返回命中表格（时间/发件人/主题/**命中字段**/UID）+ **命中片段**（优先展示正文上下文）
+  - 中文关键词：先按 UTF-8 literal 交给服务端 `SEARCH`；服务器不支持（BAD/NO）时自动退回本地扫描，结果里会写明范围
+- `email_list`：`folder`、`from`、`subject`、`keyword`、`unread`、`since`/`until`/`days`、`sort`、`max`（≤50）。返回 UID/时间/发件人/主题，🔵 未读、📎 有附件。
 - `email_read`：`folder` + `uid`，返回头部、正文（HTML 自动转纯文本）、附件清单；不下载附件内容。大于 2MB 只读头和部分正文并标注。
 - `email_folders`：列文件夹与未读数（中文文件夹名自动 UTF-7 编解码）。
 
@@ -236,7 +243,7 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 ```sh
 cd /Users/layne/codes/dsh-email
 
-node --test test/*.test.mjs     # 79 个测试（假 SMTP/OAuth/Graph/IMAP + MIME + 客户端预览卡）
+node --test test/*.test.mjs     # 88 个测试（假 SMTP/OAuth/Graph/IMAP + MIME + 客户端预览卡）
 node scripts/check-tools.mjs    # 工具契约校验
 node scripts/selftest.mjs       # 无需 DSH 宿主的环境自检
 ```

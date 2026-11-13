@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { normalizeConfig } from '../lib/js/config.js';
-import { connectImap, runFolders, runList, runRead } from '../lib/js/imap.js';
+import { connectImap, resolveTimeWindow, runFolders, runList, runRead, runSearch, snippetOf } from '../lib/js/imap.js';
 import { EmailStore } from '../lib/js/store.js';
 import { startFakeImap } from './helpers/fake-imap.mjs';
 
@@ -171,4 +171,76 @@ test('IMAP：不信任 SEARCH 顺序（服务器给降序时仍能列出最新�
   // 最新的是 uid 3（Plain ASCII），应排在第一行
   assert.match(rows[0], /Plain ASCII/);
   assert.match(rows[1], /Weekly report/);
+});
+
+test('email_search：中文关键词本地兜底命中（含片段）', async (t) => {
+  const server = await startFakeImap();
+  t.after(() => server.close());
+  const cfg = baseConfig(server.port);
+  const text = await runSearch(cfg, tempStore(), { query: '测试邮件' }, deps());
+  assert.match(text, /搜索「测试邮件」/);
+  assert.match(text, /命中 1 封/);
+  assert.match(text, /命中片段/);
+  assert.match(text, /这是一封测试邮件/);
+});
+
+test('email_search：英文关键词按发件人/正文匹配', async (t) => {
+  const server = await startFakeImap();
+  t.after(() => server.close());
+  const cfg = baseConfig(server.port);
+  const bySender = await runSearch(cfg, tempStore(), { query: 'Alice', in: 'from' }, deps());
+  assert.match(bySender, /Weekly report/);
+  const byBody = await runSearch(cfg, tempStore(), { query: 'Plain body', in: 'body' }, deps());
+  assert.match(byBody, /Plain ASCII/);
+  const miss = await runSearch(cfg, tempStore(), { query: '不可能存在的词xyz' }, deps());
+  assert.match(miss, /没有找到/);
+});
+
+test('email_search：无关键词时报错而不是静默返回全部', async (t) => {
+  const server = await startFakeImap();
+  t.after(() => server.close());
+  const text = await runSearch(baseConfig(server.port), tempStore(), {}, deps());
+  assert.match(text, /请提供搜索关键词/);
+});
+
+test('时间窗口：since/until/days 与服务端条件、本地边界一致', () => {
+  const now = new Date('2026-11-13T12:00:00+08:00').getTime();
+  const w1 = resolveTimeWindow({ since: '2026-11-01', until: '2026-11-10' }, now);
+  assert.equal(w1.criteria.some((c) => c.startsWith('SINCE')), true);
+  // until 是「含当天」：本地边界要覆盖到 11-10 23:59:59.999
+  const end = new Date(w1.untilMs);
+  assert.equal(end.getDate(), 10);
+  assert.equal(end.getHours(), 23);
+  assert.equal(w1.label, '2026-11-01 ~ 2026-11-10');
+
+  const w2 = resolveTimeWindow({ days: 7 }, now);
+  assert.equal(w2.label, '最近 7 天（含今天）');
+  assert.ok(w2.sinceMs <= now && w2.sinceMs > now - 8 * 24 * 3600 * 1000);
+
+  const w3 = resolveTimeWindow({}, now);
+  assert.equal(w3.label, '不限时间');
+  assert.deepEqual(w3.criteria, []);
+  // after/before 是别名
+  const w4 = resolveTimeWindow({ after: '2026-11-05', before: '2026-11-06' }, now);
+  assert.match(w4.label, /2026-11-05 ~ 2026-11-06/);
+});
+
+test('email_list：sort=oldest 时最旧在前，时间范围写进结果', async (t) => {
+  const server = await startFakeImap();
+  t.after(() => server.close());
+  const cfg = baseConfig(server.port);
+  const text = await runList(cfg, tempStore(), { max: 3, sort: 'oldest' }, deps());
+  const rows = text.split('\n').filter((line) => /^\| \d+ \|/.test(line));
+  assert.equal(rows.length, 3);
+  assert.match(rows[0], /测试邮件|Plain ASCII|Weekly report/);
+  assert.match(text, /时间范围：不限时间/);
+  assert.match(text, /排序：最旧在前/);
+});
+
+test('snippetOf：截取关键词上下文并压平空白', () => {
+  const text = '第一行\n\n  这里有  关键词 出现在中间 \n后面还有内容';
+  const out = snippetOf(text, '关键词', 10);
+  assert.match(out, /关键词/);
+  assert.doesNotMatch(out, /\n/);
+  assert.equal(snippetOf('无关内容', '关键词'), '');
 });
