@@ -159,3 +159,16 @@ test('IMAP：默认候选里包含 143 备用（outlook 预设）', async () => 
   assert.equal(cfg.imapTls, 'ssl');
   assert.deepEqual(cfg.imapFallbacks, [{ port: 143, tls: 'starttls' }]);
 });
+
+test('IMAP：不信任 SEARCH 顺序（服务器给降序时仍能列出最新邮件）', async (t) => {
+  // 让假服务器把 SEARCH 结果反着吐出来（模拟实测遇到的降序服务器）
+  const server = await startFakeImap({ reverseSearch: true });
+  t.after(() => server.close());
+  const cfg = baseConfig(server.port);
+  const text = await runList(cfg, tempStore(), { max: 2 }, deps());
+  const rows = text.split('\n').filter((line) => /^\| \d+ \|/.test(line));
+  assert.equal(rows.length, 2);
+  // 最新的是 uid 3（Plain ASCII），应排在第一行
+  assert.match(rows[0], /Plain ASCII/);
+  assert.match(rows[1], /Weekly report/);
+});

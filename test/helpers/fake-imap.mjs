@@ -96,7 +96,7 @@ function quoted(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export async function startFakeImap({ authFail = false, starttls = false } = {}) {
+export async function startFakeImap({ authFail = false, starttls = false, reverseSearch = false } = {}) {
   const state = { commands: [], logins: [], authPayloads: [] };
   let secureContext = null;
   let certDir = null;
@@ -178,7 +178,9 @@ export async function startFakeImap({ authFail = false, starttls = false } = {})
           continue;
         }
         if (command === 'UID' && /^SEARCH\b/i.test(rest)) {
-          write(`* SEARCH ${MESSAGES.map((item) => item.uid).join(' ')}\r\n${tag} OK SEARCH completed\r\n`);
+          const uids = MESSAGES.map((item) => item.uid);
+          if (reverseSearch) uids.reverse();
+          write(`* SEARCH ${uids.join(' ')}\r\n${tag} OK SEARCH completed\r\n`);
           continue;
         }
         if (command === 'UID' && /^FETCH\b/i.test(rest)) {
