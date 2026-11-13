@@ -1,0 +1,12 @@
+dsh-email
+Copyright 2026 Layne Peng
+
+本项目的 SMTP 状态机、Microsoft 设备码 OAuth2 流程与 Graph 发信思路，
+参考并改编自 dsh-astock（https://github.com/LaynePeng/dsh-astock）
+与 lite-work-plugins 的 email-plugin（https://github.com/LaynePeng/lite-work-plugins），
+两者均以 Apache License, Version 2.0 授权。
+
+本项目的 MIME 组装/解析、附件路径守卫、IMAP 只读实现、发信审计、
+设置 schema 与测试假服务器为本项目独立实现。
+
+Apache License 2.0 全文见 LICENSES/Apache-2.0.txt。

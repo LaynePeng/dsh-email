@@ -1,0 +1,38 @@
+# dsh-email —— Cordis **bundle patch**（随包发布，由 DSH 在安装后自动应用）。
+#
+# ⚠️ 不要把本文件复制进 ~/.dsh/profiles/<name>/cordis.patch.yml：
+#    那是 profile 的用户覆盖层。手贴会把同一条 insert 再插一遍；更糟的是
+#    包里没有这个模块时，冷启动会留下解析不到的装配行而失败。
+#    安装请用 README 里的 `dsh plugin --profile desktop add link:<本仓库>`。
+#
+# 装到 DSH profile 后，本文件把插件插进 cordis 树。`name` 必须与 package.json
+# 的 name 一致（含 scope），否则装上去了也不会被装配。
+#
+# 首选在「设置 → 插件 → 邮件助手」里改配置（表单按 lib/config-schema.js 生成，
+# 写入 profile 的 cordis.patch.yml，不是本 bundle 文件）。下面这些键都能在表单里
+# 改，示例仅作等价说明：
+#
+# 账号
+#   provider         outlook（Hotmail/Outlook）| gmail | qq | 163 | 126 | sina | aliyun | icloud | zoho | fastmail | custom
+#   auth             默认按服务商：outlook=oauth2，其余=basic（授权码/应用专用密码）
+#   username         完整邮箱地址
+#   password         basic 模式的密码/授权码（secret，不会回显）
+#   fromAddress      发件人地址，留空=username
+#   fromName         发件人显示名
+# 服务器（留空=服务商预设）
+#   smtpHost / smtpPort / smtpTls（ssl=465，starttls=587）
+#   imapHost / imapPort
+# OAuth（微软设备码；只有 outlook 需要）
+#   transport        auto | graph | smtp
+#   oauthTenant      个人账号留空；组织账号填租户域名/ID
+#   oauthClientId    自定义 Azure 应用时填（留空用内置公共客户端）
+#   oauthScope       高级：覆盖默认 scope（scopes 必须属于同一资源）
+# 其它
+#   dataDir          OAuth 令牌与发信记录目录，默认 $DSH_HOME/email-data
+#   maxAttachmentMb  单封附件总大小上限（默认 20）
+#   allowAttachmentDirs 额外允许读取附件的目录（分号分隔；默认只允许工作区）
+#   signature        默认签名（纯文本，发信时附在正文末尾；可选）
+- insert:
+    - id: dsh-email
+      name: '@laynepeng/dsh-email'
+      config: {}

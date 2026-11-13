@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+coverage/
+# 本地凭据/审计：绝不入库
+oauth.json
+sends.jsonl
+.tmp*
+.pnpm-store/
