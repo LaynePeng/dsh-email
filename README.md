@@ -34,12 +34,12 @@ DeepSeek Harness（DSH）邮件插件。**Hotmail / Outlook 走微软设备码 O
 | 普通密码 | QQ / 163 / 126 / 新浪 / 阿里云 / iCloud / Zoho / Fastmail / 自定义 SMTP，用授权码或应用专用密码 |
 | 正文 | 纯文本 + HTML；只给 HTML 时自动生成纯文本兜底 |
 | 附件 | 单封总大小默认 20MB；Graph 超过 3MB 自动走上传会话分片 |
-| 收件（只读） | 列文件夹、列邮件、读单封 |
-| 搜索 | `email_search`：关键词（中文走 UTF-8 literal 由服务端检索，失败自动本地兜底）+ 范围限定（主题/发件人/收件人/正文）+ 时间窗口（since/until/days，服务端筛完再本地复核）+ 跨文件夹 + 新旧排序，返回命中表格与**命中片段** |
+| 收件（只读） | `email_mailbox`：列文件夹、列邮件、搜索、读单封 |
+| 搜索 | `email_mailbox(action=search)`：关键词（中文走 UTF-8 literal 由服务端检索，失败自动本地兜底）+ 范围限定（主题/发件人/收件人/正文）+ 时间窗口（since/until/days，服务端筛完再本地复核）+ 跨文件夹 + 新旧排序，返回命中表格与**命中片段** |
 | 审计 | `sends.jsonl` 记录发件时间/收件人/主题/通道/结果，不含正文 |
 | 预览 | `dry_run=true` 不联网、不读令牌，只返回草稿 |
 | 对话内预览卡 | 浏览器半侧把 `email_send` 调用渲染成邮件卡：收件人/抄送/密送、主题、正文、附件、HTML 预览（sandbox iframe），并区分草稿/发送中/已发送/失败 |
-| 自检 | `email_status(probe=true)` 真实登录一次（不发信） |
+| 自检 | `email_account(action=status, probe=true)` 真实登录一次（不发信） |
 
 **它不是**：群发工具、营销邮件系统、邮件客户端替代品；没有删除/移动/标记已读的能力，也不保存已发送副本到服务器（Graph 会保存到「已发送」，SMTP 不会）。
 
@@ -109,10 +109,10 @@ dsh plugin --profile desktop remove @laynepeng/dsh-email
 Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2。本插件用**设备码流程**，不需要回调端口、不需要客户端密钥。
 
 1. 设置里选 `provider=outlook`、`auth=oauth2`，填 `username`（如 `me@hotmail.com`），保存。
-2. 对 AI 说「授权邮件」或直接让它调用 `email_oauth(action=start)`。
+2. 对 AI 说「授权邮件」或直接让它调用 `email_account(action=authorize)`。
 3. 它会返回一个网址（`https://microsoft.com/devicelogin`）和 8 位代码：
    - 打开网址 → 输入代码 → 用要发信的微软账号登录 → 同意「发送邮件 / 读取邮件」权限。
-4. 完成浏览器操作后，让它调用 `email_oauth(action=poll)`（可带 `wait_seconds` 等待）。成功后 refresh_token 落到本机 `oauth.json`（0600），之后自动续期。
+4. 完成浏览器操作后，让它调用 `email_account(action=poll)`（可带 `wait_seconds` 等待）。成功后 refresh_token 落到本机 `oauth.json`（0600），之后自动续期。
 
 细节：
 
@@ -120,14 +120,14 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 - **Outlook 的 SMTP 主入口是 `smtp.office365.com:587`**，备用 `smtp-mail.outlook.com`。实测（2026-11）`smtp-mail.outlook.com` 在 STARTTLS 升级阶段会被部分网络重置（4/4 失败），而 `smtp.office365.com` 稳定成功；两者是同一套后端，只是入口不同。
 - 内置公共客户端是 lite-work 在 Azure 注册的多租户公共客户端。如果它将来不可用，或你有自己的 Azure 应用：在 `oauthClientId` 填应用 ID，并在 Azure 里允许「公共客户端流」。
 - 组织账号（M365）把 `oauthTenant` 填成租户域名或 GUID；个人账号留空（会按 `common` 处理）。填邮箱会报 `AADSTS900023`，插件会提前纠正并提示。
-- 换账号、撤销授权、改密码后：先 `email_oauth(action=logout)`，再重新 `start`。
+- 换账号、撤销授权、改密码后：先 `email_account(action=logout)`，再重新 `authorize`。
 
 <a id="basic"></a>
 ## QQ / 163 / Gmail 等授权码邮箱
 
 1. 到邮箱网页版设置里开启 **SMTP/IMAP 服务**，生成「授权码 / 应用专用密码」。
 2. 设置里选对应 `provider`，填 `username` 与 `password`（填授权码，不是登录密码），保存。
-3. 调用 `email_status(probe=true)`：它会真实连一次 SMTP 并登录，但**不发信**。
+3. 调用 `email_account(action=status, probe=true)`：它会真实连一次 SMTP 并登录，但**不发信**。
 
 服务商预设（服务器/端口/TLS 自动带出）：
 
@@ -177,27 +177,25 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 - 失败时即使工具按约定返回 `[Error]` 文本而不是抛异常，卡片也会识别为失败，不会误报「已发送」；
 - 卡片只做展示，**发送动作仍要用户对 AI 说「发送」**，避免在 UI 里绕过对话确认。
 
-### `email_status`
+### `email_account`
 
-看配置/授权/通道/还缺什么/最近发信。`probe=true` 会真实登录一次（SMTP 登录或 Graph 令牌续期），不发信。
+`action=status` 看配置/授权/通道/还缺什么/最近发信；`probe=true` 会真实登录一次（Graph 只读探针或 SMTP 登录），不发信。
 
-### `email_oauth`
+`action=authorize | poll | cancel | logout` 处理设备码授权，`wait_seconds` 用于 poll 等待（上限 120 秒）。适合「授权邮件」「重新授权」「退出登录」这类对话。
 
-`action=status | start | poll | cancel | logout`，`wait_seconds` 用于 poll 等待（上限 120 秒）。适合「授权邮件」「重新授权」「退出登录」这类对话。
+### `email_mailbox`
 
-### `email_search` / `email_list` / `email_read` / `email_folders`
+`action` 决定做什么（默认 `list`）：
 
-只读收件箱：
-
-- `email_search`：**找邮件用这个**。
+- **`search`：找邮件用这个**。
   - `query` 关键词；`in` 限定范围（`auto`/`subject`/`from`/`to`/`body`）
   - 时间：`since` / `until`（`YYYY-MM-DD`，含当天）、`days=N`（最近 N 天）、`after`/`before` 别名
   - `from`/`to` 结构化过滤、`unread`、`all_folders=true` 跨文件夹（≤25 个）、`scan` 本地兜底回溯量（默认 200，≤500）、`sort`（`newest`/`oldest`）、`max`（≤50）
   - 返回命中表格（时间/发件人/主题/**命中字段**/UID）+ **命中片段**（优先展示正文上下文）
   - 中文关键词：先按 UTF-8 literal 交给服务端 `SEARCH`；服务器不支持（BAD/NO）时自动退回本地扫描，结果里会写明范围
-- `email_list`：`folder`、`from`、`subject`、`keyword`、`unread`、`since`/`until`/`days`、`sort`、`max`（≤50）。返回 UID/时间/发件人/主题，🔵 未读、📎 有附件。
-- `email_read`：`folder` + `uid`，返回头部、正文（HTML 自动转纯文本）、附件清单；不下载附件内容。大于 2MB 只读头和部分正文并标注。
-- `email_folders`：列文件夹与未读数（中文文件夹名自动 UTF-7 编解码）。
+- **`list`**：`folder`、`from`、`subject`、`keyword`、`unread`、`since`/`until`/`days`、`sort`、`max`（≤50）。返回 UID/时间/发件人/主题，🔵 未读、📎 有附件。
+- **`read`**：`uid`（+ `folder`），返回头部、正文（HTML 自动转纯文本）、附件清单；不下载附件内容。大于 2MB 只读头和部分正文并标注。
+- **`folders`**：列文件夹与未读数（中文文件夹名自动 UTF-7 编解码）。
 
 `keyword` 含中文时，服务器 SEARCH 只支持 ASCII，所以插件会取最近 40 封的正文前 16KB 在本地匹配——这是**有意的取舍**，结果里会写明。
 
@@ -207,11 +205,11 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 ## 安全边界
 
 - **附件只允许工作区**：模型不能把 `~/.ssh/id_rsa` 当附件发出去。需要额外目录时由用户显式配置 `allowAttachmentDirs`。
-- **密码是 secret 字段**：设置页不回显；`email_status` 只说明「填了没」；发信审计不含密码和令牌。
+- **密码是 secret 字段**：设置页不回显；`email_account(action=status)` 只说明「填了没」；发信审计不含密码和令牌。
 - **令牌文件 0600、目录 0700**；不存在配置里，不会被顺手提交到 git。
 - **发信前预览**：工具描述与系统提示都要求先 `dry_run`、等用户确认。这不是「审批弹窗」，而是对话里的确认——DSH 的工具权限门禁属于宿主策略，本插件没有内建弹窗。
 - **只读收件**：没有删除/移动/标记已读工具。`BODY.PEEK` 不会把邮件标成已读。
-- **不虚报结果**：成功只说「服务器已接收」，不说「已送达」；`email_status` 不写「已验证」。
+- **不虚报结果**：成功只说「服务器已接收」，不说「已送达」；`email_account(action=status)` 不写「已验证」。
 - **拒绝明文**：`smtpTls=none` 默认被拒绝，除非显式 `allowInsecure`（给本机中继/测试）。
 
 <a id="troubleshoot"></a>
@@ -235,7 +233,7 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 | 设置页没有表单 | 确认安装的是 bundle（`dsh.bundle.patch`），并在「设置 → 插件」里找到「邮件助手」；`Config` 依赖宿主提供的 `@deepseek-ai/schemastery`。 |
 | 沙箱里 selftest 报目录不可写 | DSH 文件沙箱只允许工作区；真实应用里 `$DSH_HOME` 可写。 |
 
-**额外诊断**：插件在宿主 Web 服务上挂了一个只读端点 `GET /api/dsh-email/status`（不含密码/令牌），浏览器打开当前 DSH 地址 + 该路径即可看到与 `email_status` 同源的状态。
+**额外诊断**：插件在宿主 Web 服务上挂了一个只读端点 `GET /api/dsh-email/status`（不含密码/令牌），浏览器打开当前 DSH 地址 + 该路径即可看到与 `email_account(action=status)` 同源的状态。
 
 <a id="develop"></a>
 ## 开发与测试
@@ -243,7 +241,7 @@ Outlook 个人版已关闭 SMTP Basic Auth（`535 5.7.139`），必须用 OAuth2
 ```sh
 cd /Users/layne/codes/dsh-email
 
-node --test test/*.test.mjs     # 88 个测试（假 SMTP/OAuth/Graph/IMAP + MIME + 客户端预览卡）
+node --test test/*.test.mjs     # 89 个测试（假 SMTP/OAuth/Graph/IMAP + MIME + 客户端预览卡）
 node scripts/check-tools.mjs    # 工具契约校验
 node scripts/selftest.mjs       # 无需 DSH 宿主的环境自检
 ```
@@ -284,7 +282,7 @@ lib/
 ## 已知限制
 
 - **单账号**：一次只配置一个邮箱。多账号需要多套配置（可后续加 accounts 数组）。
-- **没有回复/转发专用工具**：可以 `email_read` 拿到原文后用 `email_send` 手工带 `in_reply_to` / `references` 回复（不会自动引用原文、不会自动抄送）。Graph 通道会忽略这两个头（Graph 用自己的会话机制），SMTP 通道会正常带上。
+- **没有回复/转发专用工具**：可以 `email_mailbox(action=read)` 拿到原文后用 `email_send` 手工带 `in_reply_to` / `references` 回复（不会自动引用原文、不会自动抄送）。Graph 通道会忽略这两个头（Graph 用自己的会话机制），SMTP 通道会正常带上。
 - **不下载附件**：只列附件名/类型/大小。需要附件内容时请用户自己从客户端取。
 - **SMTP 发信不自动存「已发送」**：Graph 会存；SMTP 需要 IMAP APPEND，暂未实现。
 - **IMAP 只支持 993 隐式 TLS**，不支持 143 + STARTTLS。

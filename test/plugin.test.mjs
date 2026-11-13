@@ -34,7 +34,9 @@ test('注册全部工具并注入用法说明', () => {
   const { ctx, registered, prompts } = makeCtx();
   apply(ctx, { provider: 'qq', username: 'me@qq.com', password: 'x', dataDir: dir });
   assert.deepEqual([...registered.keys()].sort(), [...toolNames()].sort());
-  assert.ok(registered.size >= 6);
+  // 刻意保持精简：工具越多，每轮系统提示词里要带的 schema 越多
+  assert.equal(registered.size, 3);
+  assert.deepEqual([...registered.keys()].sort(), ['email_account', 'email_mailbox', 'email_send']);
   assert.equal(prompts.length, 1);
   assert.match(prompts[0].text, /dry_run/);
   assert.match(prompts[0].text, /已送达/);
@@ -59,22 +61,22 @@ test('email_send(dry_run)：返回草稿预览，不联网', async () => {
   assert.match(text, /a@b\.com/);
 });
 
-test('email_status / email_oauth(status) 在未授权时给出明确下一步', async () => {
+test('email_account(status) 在未授权时给出明确下一步', async () => {
   const dir = tempDir();
   const { ctx, registered } = makeCtx();
   apply(ctx, { provider: 'outlook', username: 'me@hotmail.com', dataDir: dir });
 
-  const status = await call(registered, 'email_status', { probe: false });
+  const status = await call(registered, 'email_account', { action: 'status', probe: false });
   assert.match(status, /邮件状态/);
   assert.match(status, /尚未授权/);
   assert.match(status, /email_oauth/);
   assert.doesNotMatch(status, /已送达/);
 
-  const oauth = await call(registered, 'email_oauth', { action: 'status' });
+  const oauth = await call(registered, 'email_account', { action: 'status' });
   assert.match(oauth, /尚未授权/);
 });
 
-test('email_oauth：start → poll 端到端保存 refresh_token', async (t) => {
+test('email_account：authorize → poll 端到端保存 refresh_token', async (t) => {
   const oauthServer = await startFakeOAuth({ pollUntilSuccess: 1 });
   t.after(() => oauthServer.close());
   const previous = {
@@ -96,16 +98,16 @@ test('email_oauth：start → poll 端到端保存 refresh_token', async (t) => 
     provider: 'outlook', username: 'me@hotmail.com', transport: 'graph', dataDir: dir,
   });
 
-  const started = await call(registered, 'email_oauth', { action: 'start' });
+  const started = await call(registered, 'email_account', { action: 'authorize' });
   assert.match(started, /ABCD-EFGH/);
   assert.match(started, /microsoft\.com\/devicelogin/);
 
   // 再次 start 不应换码（同一设备码只能轮询）
-  const again = await call(registered, 'email_oauth', { action: 'start' });
+  const again = await call(registered, 'email_account', { action: 'authorize' });
   assert.match(again, /ABCD-EFGH/);
   assert.equal(oauthServer.state.requests.filter((item) => item.url === '/devicecode').length, 1);
 
-  const polled = await call(registered, 'email_oauth', { action: 'poll', wait_seconds: 5 });
+  const polled = await call(registered, 'email_account', { action: 'poll', wait_seconds: 5 });
   assert.match(polled, /授权成功/);
 
   const storeFile = path.join(dir, 'oauth.json');
@@ -114,25 +116,25 @@ test('email_oauth：start → poll 端到端保存 refresh_token', async (t) => 
   assert.equal(saved.pending, null);
   assert.equal(fs.statSync(storeFile).mode & 0o777, 0o600);
 
-  const status = await call(registered, 'email_oauth', { action: 'status' });
+  const status = await call(registered, 'email_account', { action: 'status' });
   assert.match(status, /已授权/);
 
-  const logout = await call(registered, 'email_oauth', { action: 'logout' });
+  const logout = await call(registered, 'email_account', { action: 'logout' });
   assert.match(logout, /已清除/);
-  const after = await call(registered, 'email_oauth', { action: 'status' });
+  const after = await call(registered, 'email_account', { action: 'status' });
   assert.match(after, /尚未授权/);
 });
 
-test('email_oauth：非 Outlook 账号拒绝设备码授权', async () => {
+test('email_account：非 Outlook 账号拒绝设备码授权', async () => {
   const dir = tempDir();
   const { ctx, registered } = makeCtx();
   apply(ctx, { provider: 'qq', username: 'me@qq.com', password: 'x', dataDir: dir });
-  const text = await call(registered, 'email_oauth', { action: 'start' });
+  const text = await call(registered, 'email_account', { action: 'authorize' });
   assert.match(text, /\[Error\]/);
   assert.match(text, /Microsoft|outlook/);
 });
 
-test('email_folders：未配置 IMAP 时给出可操作提示', async () => {
+test('email_mailbox(folders)：未配置 IMAP 时给出可操作提示', async () => {
   const dir = tempDir();
   const { ctx, registered } = makeCtx();
   // 用 custom 且不填 imapHost：避免单测真的去连邮箱服务器
@@ -140,11 +142,11 @@ test('email_folders：未配置 IMAP 时给出可操作提示', async () => {
     provider: 'custom', username: 'me@example.com', password: 'x',
     smtpHost: 'smtp.example.com', dataDir: dir,
   });
-  const text = await call(registered, 'email_folders', {});
+  const text = await call(registered, 'email_mailbox', { action: 'folders' });
   assert.match(text, /未配置 IMAP 服务器/);
 });
 
-test('email_send 正式发送 + email_status(probe) 走真实 SMTP 对话', async (t) => {
+test('email_send 正式发送 + email_account(probe) 走真实 SMTP 对话', async (t) => {
   const server = await startFakeSmtp({ mechanisms: ['LOGIN'] });
   t.after(() => server.close());
   const dir = tempDir();
@@ -169,9 +171,30 @@ test('email_send 正式发送 + email_status(probe) 走真实 SMTP 对话', asyn
   assert.equal(server.state.data.length, 1);
   assert.match(server.state.data[0], /^Subject: =\?UTF-8\?B\?/m);
 
-  const probe = await call(registered, 'email_status', { probe: true });
+  const probe = await call(registered, 'email_account', { action: 'status', probe: true });
   assert.match(probe, /联网自检/);
   assert.match(probe, /SMTP 登录成功/);
   // probe 不会额外发信
   assert.equal(server.state.data.length, 1);
+});
+
+test('合并后的工具按 action 正确分派（不再有 7 个独立工具）', async () => {
+  const dir = tempDir();
+  const { ctx, registered } = makeCtx();
+  apply(ctx, { provider: 'custom', username: 'me@example.com', password: 'x', smtpHost: 'smtp.example.com', dataDir: dir });
+
+  // 未知 action 要明确报错，而不是静默当成默认动作
+  const badMailbox = await call(registered, 'email_mailbox', { action: 'nope' });
+  assert.match(badMailbox, /未知 action/);
+  assert.match(badMailbox, /list \/ search \/ read \/ folders/);
+
+  const badAccount = await call(registered, 'email_account', { action: 'nope' });
+  assert.match(badAccount, /未知 action/);
+  assert.match(badAccount, /status \/ authorize/);
+
+  // 不传 action 时 mailbox 默认 list、account 默认 status
+  const mailboxDefault = await call(registered, 'email_mailbox', {});
+  assert.match(mailboxDefault, /未配置 IMAP 服务器|INBOX/);
+  const accountDefault = await call(registered, 'email_account', {});
+  assert.match(accountDefault, /邮件状态/);
 });

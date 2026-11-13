@@ -23,9 +23,7 @@ const tools = JSON.parse(readFileSync(join(ROOT, 'lib', 'tools.json'), 'utf8'));
 
 const problems = [];
 if (!Array.isArray(tools)) problems.push('tools.json 必须是数组');
-const expectedNames = [
-  'email_send', 'email_status', 'email_list', 'email_search', 'email_read', 'email_folders', 'email_oauth',
-];
+const expectedNames = ['email_send', 'email_mailbox', 'email_account'];
 const seen = new Set();
 for (const tool of tools) {
   const name = String(tool?.name || '');

@@ -66,7 +66,7 @@ test('Graph：401/403 有可照着改的说明', async () => {
     fetchImpl: async () => jsonResponse({ error: { code: 'InvalidAuthenticationToken' } }, 401),
   });
   assert.equal(unauthorized.ok, false);
-  assert.match(unauthorized.message, /重新运行 email_oauth/);
+  assert.match(unauthorized.message, /email_account（action=authorize）/);
 
   const forbidden = await graphSend({}, {
     to: ['a@b.com'], subject: 'x', text: 'y',
