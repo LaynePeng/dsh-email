@@ -7,3 +7,6 @@ oauth.json
 sends.jsonl
 .tmp*
 .pnpm-store/
+
+# 打包产物（npm pack / release 用，不入库）
+*.tgz
